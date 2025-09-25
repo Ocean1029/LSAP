@@ -1,0 +1,96 @@
+#!/bin/bash
+# srm-restore: Restore files or directories from ~/.trash
+
+set -euo pipefail
+
+TRASH_DIR="$HOME/.trash"
+FILES_DIR="$TRASH_DIR/files"
+META_DIR="$TRASH_DIR/meta"
+
+if [[ ! -d "$META_DIR" ]]; then
+    echo "No trash metadata found."
+    exit 0
+fi
+
+METAS=("$META_DIR"/*.meta.csv)
+if [[ ! -e "${METAS[0]}" ]]; then
+    echo "Trash is empty."
+    exit 0
+fi
+
+# Print table header
+printf "%-5s | %-25s | %-8s | %-4s | %-30s | %s\n" \
+    "Index" "Deleted ISO8601" "Size" "Type" "Key" "Original Path"
+printf -- "------+---------------------------+----------+------+--------------------------------+-----------------------------\n"
+
+INDEX=0
+for META in "${METAS[@]}"; do
+    KEY=$(basename "$META" .meta.csv)
+    LINE=$(cat "$META")
+    ORIG=$(echo "$LINE" | cut -d, -f1)
+    TS=$(echo "$LINE"   | cut -d, -f2)
+    SIZE=$(echo "$LINE" | cut -d, -f3)
+    TYPE=$(echo "$LINE" | cut -d, -f4)
+
+    printf "%-5s | %-25s | %-8s | %-4s | %-30s | %s\n" \
+        "$INDEX" "$TS" "$SIZE" "$TYPE" "$KEY" "$ORIG"
+
+    INDEX=$((INDEX+1))
+done
+
+echo
+read -p "Enter Index to restore: " IDX
+
+if ! [[ "$IDX" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input"
+    exit 1
+fi
+
+META="${METAS[$IDX]}"
+KEY=$(basename "$META" .meta.csv)
+LINE=$(cat "$META")
+ORIG=$(echo "$LINE" | cut -d, -f1)
+TYPE=$(echo "$LINE" | cut -d, -f4)
+BASENAME=$(basename "$ORIG")
+
+# Extract to temporary directory
+TMP_DIR=$(mktemp -d)
+tar -xzf "$FILES_DIR/$KEY.tar.gz" -C "$TMP_DIR"
+EXTRACTED="$TMP_DIR/$BASENAME"
+
+if [[ "$TYPE" == "DIR" ]]; then
+    if [[ -d "$ORIG" ]]; then
+        echo "Merging contents into existing directory: $ORIG"
+        for ITEM in "$EXTRACTED"/*; do
+            NAME=$(basename "$ITEM")
+            DEST="$ORIG/$NAME"
+            if [[ -e "$DEST" ]]; then
+                SUFFIX=$(date +%Y%m%d-%H:%M)
+                DEST="${DEST}.restored.${SUFFIX}"
+                echo "Conflict: $NAME exists, restoring as $DEST"
+            fi
+            mv "$ITEM" "$DEST"
+        done
+    else
+        mkdir -p "$(dirname "$ORIG")"
+        mv "$EXTRACTED" "$ORIG"
+    fi
+else
+    mkdir -p "$(dirname "$ORIG")"
+    if [[ -e "$ORIG" ]]; then
+        SUFFIX=$(date +%Y%m%d-%H:%M)
+        RESTORE_PATH="${ORIG}.restored.${SUFFIX}"
+        echo "Original exists; restoring to: $RESTORE_PATH"
+        mv "$EXTRACTED" "$RESTORE_PATH"
+        ORIG="$RESTORE_PATH"
+    else
+        mv "$EXTRACTED" "$ORIG"
+    fi
+fi
+
+rm -rf "$TMP_DIR"
+echo "Restored to: $ORIG"
+
+# Cleanup
+rm -f "$META_DIR/$KEY.meta.csv"
+rm -f "$FILES_DIR/$KEY.tar.gz"

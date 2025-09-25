@@ -1,0 +1,80 @@
+#!/bin/bash
+# srm: Smart Remove
+# Instead of deleting files, archive them into ~/.trash and record metadata.
+
+set -euo pipefail
+
+TRASH_DIR="$HOME/.trash"
+FILES_DIR="$TRASH_DIR/files"
+META_DIR="$TRASH_DIR/meta"
+
+mkdir -p "$FILES_DIR" "$META_DIR"
+
+# Option parsing
+RECURSIVE=false
+if [[ $# -gt 0 && "$1" == "-r" ]]; then
+    RECURSIVE=true
+    shift
+fi
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: srm [-r] <file...>"
+    exit 1
+fi
+
+for FILE in "$@"; do
+    if [[ ! -e "$FILE" ]]; then
+        echo "srm: cannot remove '$FILE': No such file or directory" >&2
+        continue
+    fi
+
+    if [[ -d "$FILE" && $RECURSIVE == false ]]; then
+        echo "srm: cannot remove '$FILE': is a directory (use -r to trash recursively)" >&2
+        continue
+    fi
+
+    # Absolute path
+    ABS_PATH=$(realpath "$FILE")
+
+    # Prevent trashing the trash itself
+    if [[ "$ABS_PATH" == "$TRASH_DIR"* ]]; then
+        echo "srm: refusing to remove trash directory itself: $ABS_PATH" >&2
+        continue
+    fi
+
+    BASENAME=$(basename "$ABS_PATH")
+    DATE=$(date +%Y-%m-%d)
+    PID=$$
+    COUNTER=0
+    KEY="$BASENAME.$DATE.$PID.$COUNTER"
+
+    # Find collision-free key
+    while [[ -e "$FILES_DIR/$KEY.tar.gz" ]]; do
+        COUNTER=$((COUNTER+1))
+        KEY="$BASENAME.$DATE.$PID.$COUNTER"
+    done
+
+    # Archive the file or directory
+    PARENT=$(dirname "$ABS_PATH")
+    tar -czf "$FILES_DIR/$KEY.tar.gz" -C "$PARENT" "$BASENAME"
+
+    # Metadata
+    SIZE=$(du -sb "$ABS_PATH" | cut -f1)
+    TS=$(date --iso-8601=seconds)
+    if [[ -d "$ABS_PATH" ]]; then
+        TYPE="DIR"
+    else
+        TYPE="FILE"
+    fi
+    echo "$ABS_PATH,$TS,$SIZE,$TYPE" > "$META_DIR/$KEY.meta.csv"
+
+    # Delete original
+    if [[ -d "$ABS_PATH" ]]; then
+        rm -rf "$ABS_PATH"
+    else
+        rm -f "$ABS_PATH"
+    fi
+
+    echo "Trashed: $ABS_PATH"
+done
+
