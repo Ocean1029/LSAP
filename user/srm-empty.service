@@ -3,5 +3,6 @@ Description=Smart Trash Can cleanup service
 
 [Service]
 Type=oneshot
-ExecStart=%h/bin/srm-empty
+ExecStart=%h/.local/bin/srm-empty
+
 
