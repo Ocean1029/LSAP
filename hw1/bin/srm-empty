@@ -1,0 +1,44 @@
+#!/bin/bash
+# srm-empty: Purge expired items from ~/.trash
+
+set -euo pipefail
+
+TRASH_DIR="$HOME/.trash"
+FILES_DIR="$TRASH_DIR/files"
+META_DIR="$TRASH_DIR/meta"
+
+# Default retention days = 7
+MAX_DAYS="${TRASH_MAX_AGE_DAYS:-7}"
+
+if [[ ! -d "$META_DIR" ]]; then
+    echo "No trash found."
+    exit 0
+fi
+
+COUNT=0
+NOW=$(date +%s)
+
+for META in "$META_DIR"/*.meta.csv; do
+    [[ -e "$META" ]] || continue   # skip if no files
+
+    KEY=$(basename "$META" .meta.csv)
+    LINE=$(cat "$META")
+    TS=$(echo "$LINE" | cut -d, -f2)
+
+    # Try to parse timestamp
+    if ! DEL_TIME=$(date -d "$TS" +%s 2>/dev/null); then
+        echo "Warning: invalid timestamp in $META" >&2
+        continue
+    fi
+
+    AGE=$(( (NOW - DEL_TIME) / 86400 ))
+
+    if (( AGE > MAX_DAYS )); then
+        rm -f "$META_DIR/$KEY.meta.csv"
+        rm -f "$FILES_DIR/$KEY.tar.gz"
+        COUNT=$((COUNT+1))
+    fi
+done
+
+echo "Purged $COUNT item(s) older than $MAX_DAYS day(s)."
+

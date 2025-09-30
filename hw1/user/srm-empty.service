@@ -1,0 +1,8 @@
+[Unit]
+Description=Smart Trash Can cleanup service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/srm-empty
+
+

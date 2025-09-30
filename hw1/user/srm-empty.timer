@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Smart Trash Can cleanup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
